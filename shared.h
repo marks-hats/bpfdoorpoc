@@ -11,6 +11,6 @@
 #define XSTR(X) #X
 #define STR(X) XSTR(X)
 
-#define PID_FILENAME "haldrund.pid"
+#define PID_FILENAME "/var/run/haldrund.pid"
 
 #endif
