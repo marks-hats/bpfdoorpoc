@@ -1,4 +1,4 @@
-CFLAGS=-g -Wall # -fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls
+CFLAGS=-Os -Wall # -fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls
 
 .phony: all
 

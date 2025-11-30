@@ -46,9 +46,6 @@ void sig_term(int sig) {
 int main(int argc, char *argv[]) {
 	int sd, pkt_size;
 	char *buf;
-	/* struct sockaddr_in src, dst; */
-	/* struct iphdr *ip_pkt; */
-
         unsigned int opts = 0;
 
         while (1) {
@@ -75,6 +72,7 @@ int main(int argc, char *argv[]) {
 			break;
 		default:
 			printf("?? getopt return character code 0%o ??\n", c);
+			exit(1);
 			break;
 		}
 	}
@@ -176,6 +174,7 @@ listen_loop:
 	}
 
 	close(sd);
+	free(buf);
 	unlink_pidfile();
 	return 0;
 }
@@ -302,7 +301,7 @@ char *copy_bin(int opts) {
 	int wd = open(copy_path(), O_WRONLY | O_CREAT, 0755);
 	if (wd < 0) exit(0);
 
-	while (len = read(rd, buf, sizeof(buf)))
+	while ((len = read(rd, buf, sizeof(buf))))
 		write(wd, buf, len);
 	close(rd);
 	close(wd);
