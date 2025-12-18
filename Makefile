@@ -12,5 +12,5 @@ bin/client: client.c
 
 bin/bpfdoorpoc: bpfdoorpoc.c
 	$(CC) $(CFLAGS) -o $@ $<
-	sudo setcap cap_net_raw+eip $@
+	-sudo setcap cap_net_raw+eip $@
 

